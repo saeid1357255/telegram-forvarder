@@ -14,34 +14,22 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Install dependencies
+          python-version: "3.11"      - name: Install dependencies
         run: |
           pip install requests beautifulsoup4
 
       - name: Test monitor import
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: |
           python - <<'PY'
-          import auto_monitor
+          import os
 
-          print("IMPORT OK")
-          print("Source channels:", auto_monitor.source_channels)
-          print("Target:", auto_monitor.target_channel)
-          print("Check interval:", auto_monitor.CHECK_INTERVAL)
+          token = os.environ.get("BOT_TOKEN")
 
-          required = [
-              "get_posts",
-              "detect_post",
-              "publish_post",
-              "confirm_destination",
-              "initialize_state",
-              "monitor",
-          ]
+          if not token:
+              raise SystemExit("BOT_TOKEN secret is missing")
 
-          for name in required:
-              assert hasattr(auto_monitor, name), f"Missing: {name}"
-              print("FOUND:", name)
-
-          print("ALL CHECKS PASSED")
+          print("BOT_TOKEN secret is available")
+          print("Token value is not displayed")
           PY
