@@ -1,0 +1,8 @@
+config.py
+config_backup.py
+config_backup_*.py
+monitor_state.json
+test_video.mp4
+source.html
+__pycache__/
+*.pyc
