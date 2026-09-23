@@ -20,8 +20,28 @@ jobs:
         run: |
           pip install requests beautifulsoup4
 
-      - name: Test files
+      - name: Test monitor import
         run: |
-          echo "GitHub Actions is working"
-          python --version
-          ls -la
+          python - <<'PY'
+          import auto_monitor
+
+          print("IMPORT OK")
+          print("Source channels:", auto_monitor.source_channels)
+          print("Target:", auto_monitor.target_channel)
+          print("Check interval:", auto_monitor.CHECK_INTERVAL)
+
+          required = [
+              "get_posts",
+              "detect_post",
+              "publish_post",
+              "confirm_destination",
+              "initialize_state",
+              "monitor",
+          ]
+
+          for name in required:
+              assert hasattr(auto_monitor, name), f"Missing: {name}"
+              print("FOUND:", name)
+
+          print("ALL CHECKS PASSED")
+          PY
