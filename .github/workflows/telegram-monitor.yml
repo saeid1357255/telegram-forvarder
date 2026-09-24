@@ -41,3 +41,4 @@ jobs:
           path: monitor_state.json
           if-no-files-found: ignore
           retention-days: 7
+          overwrite: true
