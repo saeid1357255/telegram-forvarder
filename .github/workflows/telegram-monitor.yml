@@ -19,8 +19,25 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Restore monitor state
+        uses: actions/download-artifact@v4
+        with:
+          name: monitor-state
+          path: .
+          merge-multiple: true
+        continue-on-error: true
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Run monitor
         run: timeout 290s python auto_monitor.py || true
+
+      - name: Save monitor state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitor-state
+          path: monitor_state.json
+          if-no-files-found: ignore
+          retention-days: 7
