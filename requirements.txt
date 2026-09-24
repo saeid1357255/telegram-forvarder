@@ -1,2 +1,4 @@
 telethon
 python-dotenv
+requests
+beautifulsoup4
