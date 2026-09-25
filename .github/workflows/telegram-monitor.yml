@@ -1,13 +1,16 @@
 name: Telegram Monitor
 
-on:
+
+jobs:
+ on:
   workflow_dispatch:
   schedule:
     - cron: "*/5 * * * *"
-    env:
-      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-jobs:
-  monitor:
+
+env:
+  BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+
+jobs: monitor:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
