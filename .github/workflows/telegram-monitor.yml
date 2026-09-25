@@ -1,5 +1,4 @@
 name: Telegram Monitor
-
 on:
   workflow_dispatch:
   schedule:
