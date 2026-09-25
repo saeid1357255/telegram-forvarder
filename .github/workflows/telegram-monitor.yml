@@ -1,8 +1,6 @@
 name: Telegram Monitor
 
-
-jobs:
- on:
+on:
   workflow_dispatch:
   schedule:
     - cron: "*/5 * * * *"
@@ -10,7 +8,8 @@ jobs:
 env:
   BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
 
-jobs: monitor:
+jobs:
+  monitor:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -38,7 +37,6 @@ jobs: monitor:
         run: timeout 290s python auto_monitor.py || true
 
       - name: Save monitor state
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: monitor-state
