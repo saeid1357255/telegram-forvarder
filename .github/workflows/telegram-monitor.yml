@@ -1,55 +1,43 @@
 name: Telegram Monitor
+
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "*/5 * * * *"
+workflow_dispatch:
+schedule:
+- cron: "*/5 * * * *"
+
 env:
-  BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+
 jobs:
-  monitor:
-    runs-on: ubuntu-latest
-    timeout-minutes: 6
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Find previous run
-        id: previous-run
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PREVIOUS_RUN=$(gh run list \
-            --workflow telegram-monitor.yml \
-            --branch main \
-            --status completed \
-            --limit 1 \
-            --json databaseId \
-            --jq '.[0].databaseId')
-          echo "run_id=$PREVIOUS_RUN" >> "$GITHUB_OUTPUT"
-          echo "Previous run ID: $PREVIOUS_RUN"
-      - name: Restore monitor state
-        if: steps.previous-run.outputs.run_id != ''
-        uses: actions/download-artifact@v4
-        with:
-          name: monitor-state
-          path: .
-          run-id: ${{ steps.previous-run.outputs.run_id }}
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          merge-multiple: true
-          continue-on-error: true
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run monitor
-        run: timeout 290s python auto_monitor.py || true
-      - name: Save monitor state
-        uses: actions/upload-artifact@v4
-        with:
-          name: monitor-state
-          path: monitor_state.json
-          if-no-files-found: ignore
-          retention-days: 7
-          overwrite: true
+monitor:
+runs-on: ubuntu-latest
+timeout-minutes: 6
+
+steps:
+  - name: Checkout
+    uses: actions/checkout@v4
+
+  - name: Setup Python
+    uses: actions/setup-python@v5
+    with:
+      python-version: "3.11"
+
+  - name: Restore monitor state
+    uses: actions/cache/restore@v4
+    with:
+      path: monitor_state.json
+      key: monitor-state-${{ github.run_id }}
+      restore-keys: |
+        monitor-state-
+
+  - name: Install dependencies
+    run: pip install -r requirements.txt
+
+  - name: Run monitor
+    run: timeout 290s python auto_monitor.py || true
+
+  - name: Save monitor state
+    uses: actions/cache/save@v4
+    with:
+      path: monitor_state.json
+      key: monitor-state-${{ github.run_id }}
