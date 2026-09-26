@@ -16,13 +16,33 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+                - name: Find previous run
+        id: previous-run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PREVIOUS_RUN=$(gh run list \
+            --workflow telegram-monitor.yml \
+            --branch main \
+            --status completed \
+            --limit 2 \
+            --json databaseId \
+            --jq '.[1].databaseId')
+
+          echo "run_id=$PREVIOUS_RUN" >> "$GITHUB_OUTPUT"
+          echo "Previous run ID: $PREVIOUS_RUN"
+
       - name: Restore monitor state
+        if: steps.previous-run.outputs.run_id != ''
         uses: actions/download-artifact@v4
         with:
           name: monitor-state
           path: .
+          run-id: ${{ steps.previous-run.outputs.run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
           merge-multiple: true
-        continue-on-error: true
+          continue-on-error: true
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run monitor
