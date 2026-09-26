@@ -1,1 +1,46 @@
+name: Telegram Monitor
 
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+env:
+  BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore monitor state
+        uses: actions/download-artifact@v4
+        with:
+          name: monitor-state
+          path: .
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run monitor
+        run: timeout 290s python auto_monitor.py || true
+
+      - name: Save monitor state
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitor-state
+          path: monitor_state.json
+          if-no-files-found: ignore
+          retention-days: 7
+          overwrite: true
