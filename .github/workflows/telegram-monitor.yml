@@ -25,14 +25,12 @@ jobs:
           name: monitor-state
           path: .
           merge-multiple: true
-          continue-on-error: true
+        continue-on-error: true
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Telegram Monitor
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      - name: Run monitor
         run: timeout 290s python auto_monitor.py || true
 
       - name: Save monitor state
