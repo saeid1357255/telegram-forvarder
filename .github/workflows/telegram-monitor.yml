@@ -30,7 +30,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run monitor
+            - name: Run
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: timeout 290s python auto_monitor.py || true
 
       - name: Save state
