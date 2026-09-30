@@ -1,4 +1,3 @@
-
 import json
 import os
 import time
@@ -10,9 +9,7 @@ from config import BOT_TOKEN, source_channels, target_channel
 
 
 SIGNATURE = "⚽ فوتبال برتر\n@footbalbartar99"
-
 STATE_FILE = "monitor_state.json"
-
 CHECK_INTERVAL = 30
 RETRIES = 3
 
@@ -45,12 +42,7 @@ def load_state():
 
 def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            state,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+        json.dump(state, f, ensure_ascii=False, indent=2)
 
 
 def get_channel_html(channel):
@@ -67,9 +59,7 @@ def get_channel_html(channel):
             if response.status_code == 200:
                 return response.text
 
-            print(
-                f"[{channel}] HTTP {response.status_code}"
-            )
+            print(f"[{channel}] HTTP {response.status_code}")
 
         except requests.RequestException as e:
             print(
@@ -89,14 +79,9 @@ def get_posts(channel):
     if not html:
         return []
 
-    soup = BeautifulSoup(
-        html,
-        "html.parser"
-    )
+    soup = BeautifulSoup(html, "html.parser")
 
-    return soup.select(
-        ".tgme_widget_message"
-    )
+    return soup.select(".tgme_widget_message")
 
 
 def get_post_id(post):
@@ -105,19 +90,17 @@ def get_post_id(post):
 
 def clean_text(text):
     if not text:
-        return ""
+        return SIGNATURE
 
     for channel in source_channels:
-        pattern = rf"(?i)(?<![A-Za-z0-9_])@{re.escape(channel)}\b"
         text = re.sub(
-            pattern,
+            rf"(?i)(?<![A-Za-z0-9_])@{re.escape(channel)}\b",
             "",
             text
         )
 
-        pattern = rf"(?i)https?://t\.me/{re.escape(channel)}(?:/\d+)?"
         text = re.sub(
-            pattern,
+            rf"(?i)https?://t\.me/{re.escape(channel)}(?:/\d+)?",
             "",
             text
         )
@@ -133,7 +116,7 @@ def clean_text(text):
     for line in lines:
         if re.fullmatch(
             r"@[A-Za-z0-9_]{3,}",
-            line.strip()
+            line
         ):
             continue
 
@@ -154,14 +137,14 @@ def clean_text(text):
 
 
 def get_post_text(post):
-    text_node = post.select_one(
+    node = post.select_one(
         ".tgme_widget_message_text"
     )
 
-    if not text_node:
+    if not node:
         return ""
 
-    return text_node.get_text(
+    return node.get_text(
         "\n",
         strip=True
     )
@@ -178,9 +161,7 @@ def get_video_url(post):
     video_url = video.get("src")
 
     if not video_url:
-        source = video.select_one(
-            "source"
-        )
+        source = video.select_one("source")
 
         if source:
             video_url = source.get("src")
@@ -196,34 +177,18 @@ def get_photo_url(post):
     if not photo:
         return None
 
-    style = photo.get(
-        "style",
-        ""
-    )
+    style = photo.get("style", "")
 
-    marker = "url('"
+    for marker in ("url('", 'url("'):
+        if marker in style:
+            start = style.find(marker) + len(marker)
+            end = style.find(
+                marker[-1],
+                start
+            )
 
-    if marker in style:
-        start = style.find(marker) + len(marker)
-        end = style.find(
-            "'",
-            start
-        )
-
-        if end != -1:
-            return style[start:end]
-
-    marker = 'url("'
-
-    if marker in style:
-        start = style.find(marker) + len(marker)
-        end = style.find(
-            '"',
-            start
-        )
-
-        if end != -1:
-            return style[start:end]
+            if end != -1:
+                return style[start:end]
 
     return None
 
@@ -232,7 +197,6 @@ def detect_post(post):
     text = get_post_text(post)
 
     video_url = get_video_url(post)
-
     photo_url = get_photo_url(post)
 
     if video_url:
@@ -252,10 +216,7 @@ def detect_post(post):
 
 
 def telegram_url(method):
-    return (
-        f"https://api.telegram.org/"
-        f"bot{BOT_TOKEN}/{method}"
-    )
+    return f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
 
 
 def send_text(text):
@@ -309,16 +270,12 @@ def send_video(video_url, caption):
 
         print(
             "CONTENT-TYPE:",
-            video_response.headers.get(
-                "content-type"
-            )
+            video_response.headers.get("content-type")
         )
 
         print(
             "CONTENT-LENGTH:",
-            video_response.headers.get(
-                "content-length"
-            )
+            video_response.headers.get("content-length")
         )
 
         try:
@@ -362,15 +319,15 @@ def send_video(video_url, caption):
 def send_photo(photo_url, caption):
     print("Downloading photo...")
 
-    response = requests.get(
-        photo_url,
-        headers=HEADERS,
-        timeout=60
-    )
-
-    response.raise_for_status()
-
     try:
+        response = requests.get(
+            photo_url,
+            headers=HEADERS,
+            timeout=60
+        )
+
+        response.raise_for_status()
+
         telegram_response = requests.post(
             telegram_url("sendPhoto"),
             data={
@@ -583,13 +540,10 @@ def initialize_state():
             print(
                 f"[{channel}] no posts found"
             )
-
             continue
 
-        latest = posts[-1]
-
         latest_id = get_post_id(
-            latest
+            posts[-1]
         )
 
         state[channel] = latest_id
@@ -627,126 +581,144 @@ def get_numeric_post_id(post_id):
         return None
 
 
-def monitor():
-    state = load_state()
+def process_channel(channel, state):
+    posts = get_posts(channel)
 
-    if not state:
-        state = initialize_state()
+    if not posts:
+        return
 
-    for channel in source_channels:
+    known_id = state.get(
+        channel
+    )
 
-        try:
-            posts = get_posts(
-                channel
-            )
+    if known_id is None:
+        return
 
-            if not posts:
-                continue
+    known_num = get_numeric_post_id(
+        known_id
+    )
 
-            known_id = state.get(
-                channel
-            )
+    if known_num is None:
+        print(
+            f"[{channel}] Invalid state ID:",
+            known_id
+        )
+        return
 
-            if known_id is None:
-                continue
+    new_posts = []
 
-            known_num = get_numeric_post_id(
-                known_id
-            )
+    for post in posts:
 
-            if known_num is None:
-                print(
-                    f"[{channel}] Invalid state ID:",
-                    known_id
-                )
+        post_id = get_post_id(
+            post
+        )
 
-                continue
+        if not post_id:
+            continue
 
-            new_posts = []
+        post_num = get_numeric_post_id(
+            post_id
+        )
 
-            for post in posts:
-
-                post_id = get_post_id(
+        if (
+            post_num is not None
+            and post_num > known_num
+        ):
+            new_posts.append(
+                (
+                    post_num,
                     post
                 )
+            )
 
-                if not post_id:
-                    continue
+    if not new_posts:
+        print(
+            f"[{channel}] No new posts."
+        )
+        return
 
-                post_num = get_numeric_post_id(
-                    post_id
-                )
+    new_posts.sort(
+        key=lambda item: item[0]
+    )
 
-                if (
-                    post_num is not None
-                    and post_num > known_num
-                ):
-                    new_posts.append(
-                        (
-                            post_num,
-                            post
-                        )
-                    )
+    print(
+        f"\n[{channel}] NEW POSTS: "
+        f"{len(new_posts)}"
+    )
 
-            if not new_posts:
-                print(
-                    f"[{channel}] No new posts."
-                )
+    for _, post in new_posts:
 
-                continue
+        post_data = detect_post(
+            post
+        )
 
-            new_posts.sort(
-                key=lambda item: item[0]
+        print(
+            "NEW:",
+            post_data["id"],
+            "|",
+            post_data["type"]
+        )
+
+        state_confirmed = False
+
+        try:
+            publish_post(
+                post_data
+            )
+
+            state_confirmed = True
+
+        except TelegramSendUncertain as e:
+
+            print(
+                "UNCERTAIN SEND:",
+                str(e)[:300]
             )
 
             print(
-                f"\n[{channel}] NEW POSTS: "
-                f"{len(new_posts)}"
+                "Verifying destination..."
             )
 
-            for post_num, post in new_posts:
+            if confirm_destination(
+                post_data,
+                attempts=3,
+                delay=4
+            ):
 
-                post_data = detect_post(
-                    post
+                print(
+                    "SEND CONFIRMED ON DESTINATION."
+                )
+
+                state_confirmed = True
+
+            else:
+
+                print(
+                    "NOT FOUND ON DESTINATION."
                 )
 
                 print(
-                    "NEW:",
-                    post_data["id"],
-                    "|",
-                    post_data["type"]
+                    "Retrying publish once..."
                 )
-
-                state_confirmed = False
 
                 try:
                     publish_post(
                         post_data
                     )
 
-                    state_confirmed = True
-
-                except TelegramSendUncertain as e:
-
                     print(
-                        "UNCERTAIN SEND:",
-                        str(e)[:300]
+                        "RETRY SEND RETURNED SUCCESS."
                     )
 
-                    print(
-                        "Verifying destination..."
-                    )
-
-                    confirmed = confirm_destination(
+                    if confirm_destination(
                         post_data,
                         attempts=3,
                         delay=4
-                    )
-
-                    if confirmed:
+                    ):
 
                         print(
-                            "SEND CONFIRMED ON DESTINATION."
+                            "RETRY SEND CONFIRMED "
+                            "ON DESTINATION."
                         )
 
                         state_confirmed = True
@@ -754,101 +726,59 @@ def monitor():
                     else:
 
                         print(
-                            "NOT FOUND ON DESTINATION."
+                            "RETRY NOT CONFIRMED."
                         )
 
-                        print(
-                            "Retrying publish once..."
-                        )
-
-                        try:
-                            publish_post(
-                                post_data
-                            )
-
-                            print(
-                                "RETRY SEND RETURNED SUCCESS."
-                            )
-
-                            print(
-                                "Verifying retry "
-                                "on destination..."
-                            )
-
-                            retry_confirmed = (
-                                confirm_destination(
-                                    post_data,
-                                    attempts=3,
-                                    delay=4
-                                )
-                            )
-
-                            if retry_confirmed:
-
-                                print(
-                                    "RETRY SEND "
-                                    "CONFIRMED "
-                                    "ON DESTINATION."
-                                )
-
-                                state_confirmed = True
-
-                            else:
-
-                                print(
-                                    "RETRY NOT CONFIRMED."
-                                )
-
-                                print(
-                                    "STATE WILL NOT "
-                                    "BE UPDATED."
-                                )
-
-                        except TelegramSendUncertain as retry_error:
-
-                            print(
-                                "RETRY ALSO UNCERTAIN:",
-                                str(retry_error)[:300]
-                            )
-
-                            print(
-                                "STATE WILL NOT "
-                                "BE UPDATED."
-                            )
-
-                        except Exception as retry_error:
-
-                            print(
-                                "RETRY FAILED:",
-                                str(retry_error)[:500]
-                            )
-
-                            print(
-                                "STATE WILL NOT "
-                                "BE UPDATED."
-                            )
-
-                if state_confirmed:
-
-                    state[channel] = (
-                        post_data["id"]
-                    )
-
-                    save_state(
-                        state
-                    )
+                except TelegramSendUncertain as retry_error:
 
                     print(
-                        "STATE UPDATED:",
-                        post_data["id"]
+                        "RETRY ALSO UNCERTAIN:",
+                        str(retry_error)[:300]
                     )
 
-                else:
+                except Exception as retry_error:
 
                     print(
-                        "STATE NOT UPDATED:",
-                        post_data["id"]
+                        "RETRY FAILED:",
+                        str(retry_error)[:500]
                     )
+
+        except Exception as e:
+
+            print(
+                f"[{channel}] PUBLISH ERROR:",
+                str(e)[:500]
+            )
+
+        if state_confirmed:
+
+            state[channel] = post_data["id"]
+
+            save_state(
+                state
+            )
+
+            print(
+                "STATE UPDATED:",
+                post_data["id"]
+            )
+
+        else:
+
+            print(
+                "STATE NOT UPDATED:",
+                post_data["id"]
+            )
+
+
+def run_one_cycle(state):
+    for channel in source_channels:
+
+        try:
+            process_channel(
+                channel,
+                state
+            )
 
         except Exception as e:
 
@@ -857,8 +787,17 @@ def monitor():
                 str(e)[:500]
             )
 
-    # GitHub Actions فقط یک دور اجرا می‌شود.
-    # Termux همچنان دائماً اجرا خواهد شد.
+
+def monitor():
+    state = load_state()
+
+    if not state:
+        state = initialize_state()
+
+    # One monitoring cycle.
+    run_one_cycle(state)
+
+    # GitHub Actions runs one cycle and exits.
     if os.getenv(
         "GITHUB_ACTIONS"
     ) == "true":
@@ -870,121 +809,16 @@ def monitor():
 
         return
 
-    # Termux mode
+    # Termux keeps monitoring continuously.
     while True:
 
         time.sleep(
             CHECK_INTERVAL
         )
 
-        for channel in source_channels:
-
-            try:
-                posts = get_posts(
-                    channel
-                )
-
-                if not posts:
-                    continue
-
-                known_id = state.get(
-                    channel
-                )
-
-                if known_id is None:
-                    continue
-
-                known_num = get_numeric_post_id(
-                    known_id
-                )
-
-                if known_num is None:
-                    continue
-
-                new_posts = []
-
-                for post in posts:
-
-                    post_id = get_post_id(
-                        post
-                    )
-
-                    if not post_id:
-                        continue
-
-                    post_num = get_numeric_post_id(
-                        post_id
-                    )
-
-                    if (
-                        post_num is not None
-                        and post_num > known_num
-                    ):
-                        new_posts.append(
-                            (
-                                post_num,
-                                post
-                            )
-                        )
-
-                new_posts.sort(
-                    key=lambda item: item[0]
-                )
-
-                for post_num, post in new_posts:
-
-                    post_data = detect_post(
-                        post
-                    )
-
-                    print(
-                        "NEW:",
-                        post_data["id"],
-                        "|",
-                        post_data["type"]
-                    )
-
-                    state_confirmed = False
-
-                    try:
-
-                        publish_post(
-                            post_data
-                        )
-
-                        state_confirmed = True
-
-                    except TelegramSendUncertain as e:
-
-                        print(
-                            "UNCERTAIN SEND:",
-                            str(e)[:300]
-                        )
-
-                        if confirm_destination(
-                            post_data,
-                            attempts=3,
-                            delay=4
-                        ):
-
-                            state_confirmed = True
-
-                    if state_confirmed:
-
-                        state[channel] = (
-                            post_data["id"]
-                        )
-
-                        save_state(
-                            state
-                        )
-
-                        print(
-                            "STATE UPDATED:",
-                            post_data["id"]
-                        )
-
-    return
+        run_one_cycle(
+            state
+        )
 
 
 if __name__ == "__main__":
