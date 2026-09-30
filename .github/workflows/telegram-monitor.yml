@@ -5,6 +5,13 @@ on:
   schedule:
     - cron: "*/5 * * * *"
 
+permissions:
+  contents: write
+
+concurrency:
+  group: telegram-monitor
+  cancel-in-progress: false
+
 jobs:
   monitor:
     runs-on: ubuntu-latest
@@ -23,7 +30,23 @@ jobs:
           python-version: "3.11"
 
       - name: Install requirements
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
 
       - name: Run Telegram Monitor
-        run: python auto_monitor.py
+        run: |
+          python auto_monitor.py
+
+      - name: Save monitor state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add monitor_state.json
+
+          if git diff --cached --quiet; then
+            echo "No state changes to save."
+          else
+            git commit -m "Update monitor state"
+            git push
+          fi
