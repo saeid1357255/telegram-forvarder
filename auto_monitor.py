@@ -1,3 +1,4 @@
+
 import json
 import os
 import time
@@ -19,6 +20,7 @@ RETRIES = 3
 class TelegramSendUncertain(Exception):
     """Telegram may have received the message, but the response was lost."""
     pass
+
 
 HEADERS = {
     "User-Agent": (
@@ -87,9 +89,14 @@ def get_posts(channel):
     if not html:
         return []
 
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(
+        html,
+        "html.parser"
+    )
 
-    return soup.select(".tgme_widget_message")
+    return soup.select(
+        ".tgme_widget_message"
+    )
 
 
 def get_post_id(post):
@@ -100,36 +107,51 @@ def clean_text(text):
     if not text:
         return ""
 
-    # حذف آدرس و لینک کانال‌های منبع
     for channel in source_channels:
         pattern = rf"(?i)(?<![A-Za-z0-9_])@{re.escape(channel)}\b"
-        text = re.sub(pattern, "", text)
+        text = re.sub(
+            pattern,
+            "",
+            text
+        )
 
         pattern = rf"(?i)https?://t\.me/{re.escape(channel)}(?:/\d+)?"
-        text = re.sub(pattern, "", text)
+        text = re.sub(
+            pattern,
+            "",
+            text
+        )
 
     lines = [
         line.strip()
         for line in text.splitlines()
         if line.strip()
     ]
+
     cleaned = []
 
     for line in lines:
-        # حذف امضای مستقل کانال، مثل @TajFans1945
-        if re.fullmatch(r"@[A-Za-z0-9_]{3,}", line.strip()):
+        if re.fullmatch(
+            r"@[A-Za-z0-9_]{3,}",
+            line.strip()
+        ):
             continue
 
         cleaned.append(line)
+
     text = "\n".join(cleaned).strip()
 
-    # حذف فاصله‌های اضافی باقی‌مانده
-    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(
+        r"\n{3,}",
+        "\n\n",
+        text
+    )
 
     if text:
         return f"{text}\n\n{SIGNATURE}"
 
     return SIGNATURE
+
 
 def get_post_text(post):
     text_node = post.select_one(
@@ -156,7 +178,9 @@ def get_video_url(post):
     video_url = video.get("src")
 
     if not video_url:
-        source = video.select_one("source")
+        source = video.select_one(
+            "source"
+        )
 
         if source:
             video_url = source.get("src")
@@ -172,13 +196,19 @@ def get_photo_url(post):
     if not photo:
         return None
 
-    style = photo.get("style", "")
+    style = photo.get(
+        "style",
+        ""
+    )
 
     marker = "url('"
 
     if marker in style:
         start = style.find(marker) + len(marker)
-        end = style.find("'", start)
+        end = style.find(
+            "'",
+            start
+        )
 
         if end != -1:
             return style[start:end]
@@ -187,7 +217,10 @@ def get_photo_url(post):
 
     if marker in style:
         start = style.find(marker) + len(marker)
-        end = style.find('"', start)
+        end = style.find(
+            '"',
+            start
+        )
 
         if end != -1:
             return style[start:end]
@@ -235,6 +268,7 @@ def send_text(text):
             },
             timeout=60
         )
+
     except requests.RequestException as e:
         raise TelegramSendUncertain(
             f"sendMessage network error: {e}"
@@ -244,6 +278,7 @@ def send_text(text):
 
     try:
         data = response.json()
+
     except ValueError as e:
         raise TelegramSendUncertain(
             "sendMessage returned invalid JSON"
@@ -302,6 +337,7 @@ def send_video(video_url, caption):
                 },
                 timeout=180
             )
+
         except requests.RequestException as e:
             raise TelegramSendUncertain(
                 f"sendVideo network error: {e}"
@@ -311,6 +347,7 @@ def send_video(video_url, caption):
 
     try:
         data = response.json()
+
     except ValueError as e:
         raise TelegramSendUncertain(
             "sendVideo returned invalid JSON"
@@ -349,6 +386,7 @@ def send_photo(photo_url, caption):
             },
             timeout=120
         )
+
     except requests.RequestException as e:
         raise TelegramSendUncertain(
             f"sendPhoto network error: {e}"
@@ -358,6 +396,7 @@ def send_photo(photo_url, caption):
 
     try:
         data = telegram_response.json()
+
     except ValueError as e:
         raise TelegramSendUncertain(
             "sendPhoto returned invalid JSON"
@@ -373,15 +412,17 @@ def normalize_for_match(text):
     if not text:
         return ""
 
-    # حذف امضای بات فقط برای مقایسه
     text = re.sub(
         r"⚽\s*فوتبال برتر\s*@footbalbartar99",
         "",
         text
     )
 
-    # حذف تفاوت فاصله و شکست خطوط تلگرام
-    text = re.sub(r"\s+", "", text)
+    text = re.sub(
+        r"\s+",
+        "",
+        text
+    )
 
     return text.strip()
 
@@ -408,7 +449,9 @@ def destination_has_post(post):
 
         wanted_type = post.get("type")
 
-        for item in soup.select(".tgme_widget_message"):
+        for item in soup.select(
+            ".tgme_widget_message"
+        ):
             item_type = (
                 "video"
                 if item.select("video")
@@ -435,11 +478,15 @@ def destination_has_post(post):
                 else ""
             )
 
-            if normalize_for_match(item_text) == wanted_text:
+            if (
+                normalize_for_match(item_text)
+                == wanted_text
+            ):
                 print(
                     "CONFIRMED ON DESTINATION:",
                     item.get("data-post")
                 )
+
                 return True
 
         return False
@@ -449,11 +496,19 @@ def destination_has_post(post):
             "Destination check failed:",
             str(e)[:300]
         )
+
         return False
 
 
-def confirm_destination(post, attempts=3, delay=4):
-    for attempt in range(1, attempts + 1):
+def confirm_destination(
+    post,
+    attempts=3,
+    delay=4
+):
+    for attempt in range(
+        1,
+        attempts + 1
+    ):
         print(
             f"Checking destination "
             f"(attempt {attempt}/{attempts})..."
@@ -499,7 +554,10 @@ def publish_post(post):
             caption
         )
 
-    message = result.get("result", {})
+    message = result.get(
+        "result",
+        {}
+    )
 
     print(
         "PUBLISHED:",
@@ -510,8 +568,13 @@ def publish_post(post):
 def initialize_state():
     state = {}
 
-    print("\nInitializing monitor...")
-    print("Old posts will NOT be published.\n")
+    print(
+        "\nInitializing monitor..."
+    )
+
+    print(
+        "Old posts will NOT be published.\n"
+    )
 
     for channel in source_channels:
         posts = get_posts(channel)
@@ -520,10 +583,14 @@ def initialize_state():
             print(
                 f"[{channel}] no posts found"
             )
+
             continue
 
         latest = posts[-1]
-        latest_id = get_post_id(latest)
+
+        latest_id = get_post_id(
+            latest
+        )
 
         state[channel] = latest_id
 
@@ -533,16 +600,30 @@ def initialize_state():
 
     save_state(state)
 
-    print("\nInitialization complete.")
-    print("Waiting for NEW posts...\n")
+    print(
+        "\nInitialization complete."
+    )
+
+    print(
+        "Waiting for NEW posts...\n"
+    )
 
     return state
 
 
 def get_numeric_post_id(post_id):
     try:
-        return int(post_id.rsplit("/", 1)[-1])
-    except (ValueError, AttributeError):
+        return int(
+            post_id.rsplit(
+                "/",
+                1
+            )[-1]
+        )
+
+    except (
+        ValueError,
+        AttributeError
+    ):
         return None
 
 
@@ -552,130 +633,386 @@ def monitor():
     if not state:
         state = initialize_state()
 
+    for channel in source_channels:
+
+        try:
+            posts = get_posts(
+                channel
+            )
+
+            if not posts:
+                continue
+
+            known_id = state.get(
+                channel
+            )
+
+            if known_id is None:
+                continue
+
+            known_num = get_numeric_post_id(
+                known_id
+            )
+
+            if known_num is None:
+                print(
+                    f"[{channel}] Invalid state ID:",
+                    known_id
+                )
+
+                continue
+
+            new_posts = []
+
+            for post in posts:
+
+                post_id = get_post_id(
+                    post
+                )
+
+                if not post_id:
+                    continue
+
+                post_num = get_numeric_post_id(
+                    post_id
+                )
+
+                if (
+                    post_num is not None
+                    and post_num > known_num
+                ):
+                    new_posts.append(
+                        (
+                            post_num,
+                            post
+                        )
+                    )
+
+            if not new_posts:
+                print(
+                    f"[{channel}] No new posts."
+                )
+
+                continue
+
+            new_posts.sort(
+                key=lambda item: item[0]
+            )
+
+            print(
+                f"\n[{channel}] NEW POSTS: "
+                f"{len(new_posts)}"
+            )
+
+            for post_num, post in new_posts:
+
+                post_data = detect_post(
+                    post
+                )
+
+                print(
+                    "NEW:",
+                    post_data["id"],
+                    "|",
+                    post_data["type"]
+                )
+
+                state_confirmed = False
+
+                try:
+                    publish_post(
+                        post_data
+                    )
+
+                    state_confirmed = True
+
+                except TelegramSendUncertain as e:
+
+                    print(
+                        "UNCERTAIN SEND:",
+                        str(e)[:300]
+                    )
+
+                    print(
+                        "Verifying destination..."
+                    )
+
+                    confirmed = confirm_destination(
+                        post_data,
+                        attempts=3,
+                        delay=4
+                    )
+
+                    if confirmed:
+
+                        print(
+                            "SEND CONFIRMED ON DESTINATION."
+                        )
+
+                        state_confirmed = True
+
+                    else:
+
+                        print(
+                            "NOT FOUND ON DESTINATION."
+                        )
+
+                        print(
+                            "Retrying publish once..."
+                        )
+
+                        try:
+                            publish_post(
+                                post_data
+                            )
+
+                            print(
+                                "RETRY SEND RETURNED SUCCESS."
+                            )
+
+                            print(
+                                "Verifying retry "
+                                "on destination..."
+                            )
+
+                            retry_confirmed = (
+                                confirm_destination(
+                                    post_data,
+                                    attempts=3,
+                                    delay=4
+                                )
+                            )
+
+                            if retry_confirmed:
+
+                                print(
+                                    "RETRY SEND "
+                                    "CONFIRMED "
+                                    "ON DESTINATION."
+                                )
+
+                                state_confirmed = True
+
+                            else:
+
+                                print(
+                                    "RETRY NOT CONFIRMED."
+                                )
+
+                                print(
+                                    "STATE WILL NOT "
+                                    "BE UPDATED."
+                                )
+
+                        except TelegramSendUncertain as retry_error:
+
+                            print(
+                                "RETRY ALSO UNCERTAIN:",
+                                str(retry_error)[:300]
+                            )
+
+                            print(
+                                "STATE WILL NOT "
+                                "BE UPDATED."
+                            )
+
+                        except Exception as retry_error:
+
+                            print(
+                                "RETRY FAILED:",
+                                str(retry_error)[:500]
+                            )
+
+                            print(
+                                "STATE WILL NOT "
+                                "BE UPDATED."
+                            )
+
+                if state_confirmed:
+
+                    state[channel] = (
+                        post_data["id"]
+                    )
+
+                    save_state(
+                        state
+                    )
+
+                    print(
+                        "STATE UPDATED:",
+                        post_data["id"]
+                    )
+
+                else:
+
+                    print(
+                        "STATE NOT UPDATED:",
+                        post_data["id"]
+                    )
+
+        except Exception as e:
+
+            print(
+                f"[{channel}] ERROR:",
+                str(e)[:500]
+            )
+
+    # GitHub Actions فقط یک دور اجرا می‌شود.
+    # Termux همچنان دائماً اجرا خواهد شد.
+    if os.getenv(
+        "GITHUB_ACTIONS"
+    ) == "true":
+
+        print(
+            "\nGitHub Actions: "
+            "one-cycle run completed."
+        )
+
+        return
+
+    # Termux mode
     while True:
+
+        time.sleep(
+            CHECK_INTERVAL
+        )
+
         for channel in source_channels:
+
             try:
-                posts = get_posts(channel)
+                posts = get_posts(
+                    channel
+                )
 
                 if not posts:
                     continue
 
-                known_id = state.get(channel)
+                known_id = state.get(
+                    channel
+                )
 
                 if known_id is None:
                     continue
 
-                known_num = get_numeric_post_id(known_id)
+                known_num = get_numeric_post_id(
+                    known_id
+                )
 
                 if known_num is None:
-                    print(f"[{channel}] Invalid state ID:", known_id)
                     continue
 
                 new_posts = []
 
                 for post in posts:
-                    post_id = get_post_id(post)
+
+                    post_id = get_post_id(
+                        post
+                    )
 
                     if not post_id:
                         continue
 
-                    post_num = get_numeric_post_id(post_id)
+                    post_num = get_numeric_post_id(
+                        post_id
+                    )
 
-                    if post_num is not None and post_num > known_num:
-                        new_posts.append((post_num, post))
+                    if (
+                        post_num is not None
+                        and post_num > known_num
+                    ):
+                        new_posts.append(
+                            (
+                                post_num,
+                                post
+                            )
+                        )
 
-                if not new_posts:
-                    continue
-
-                new_posts.sort(key=lambda item: item[0])
-
-                print(f"\n[{channel}] NEW POSTS: {len(new_posts)}")
+                new_posts.sort(
+                    key=lambda item: item[0]
+                )
 
                 for post_num, post in new_posts:
-                    post_data = detect_post(post)
 
-                    print("NEW:", post_data["id"], "|", post_data["type"])
+                    post_data = detect_post(
+                        post
+                    )
+
+                    print(
+                        "NEW:",
+                        post_data["id"],
+                        "|",
+                        post_data["type"]
+                    )
 
                     state_confirmed = False
 
                     try:
-                        publish_post(post_data)
+
+                        publish_post(
+                            post_data
+                        )
+
                         state_confirmed = True
 
                     except TelegramSendUncertain as e:
-                        print("UNCERTAIN SEND:", str(e)[:300])
-                        print("Verifying destination...")
 
-                        confirmed = confirm_destination(
+                        print(
+                            "UNCERTAIN SEND:",
+                            str(e)[:300]
+                        )
+
+                        if confirm_destination(
                             post_data,
                             attempts=3,
                             delay=4
-                        )
+                        ):
 
-                        if confirmed:
-                            print("SEND CONFIRMED ON DESTINATION.")
                             state_confirmed = True
 
-                        else:
-                            print("NOT FOUND ON DESTINATION.")
-                            print("Retrying publish once...")
-
-                            try:
-                                publish_post(post_data)
-
-                                print("RETRY SEND RETURNED SUCCESS.")
-                                print("Verifying retry on destination...")
-
-                                retry_confirmed = confirm_destination(
-                                    post_data,
-                                    attempts=3,
-                                    delay=4
-                                )
-
-                                if retry_confirmed:
-                                    print("RETRY SEND CONFIRMED ON DESTINATION.")
-                                    state_confirmed = True
-                                else:
-                                    print("RETRY NOT CONFIRMED.")
-                                    print("STATE WILL NOT BE UPDATED.")
-
-                            except TelegramSendUncertain as retry_error:
-                                print(
-                                    "RETRY ALSO UNCERTAIN:",
-                                    str(retry_error)[:300]
-                                )
-                                print("STATE WILL NOT BE UPDATED.")
-
-                            except Exception as retry_error:
-                                print(
-                                    "RETRY FAILED:",
-                                    str(retry_error)[:500]
-                                )
-                                print("STATE WILL NOT BE UPDATED.")
-
                     if state_confirmed:
-                        state[channel] = post_data["id"]
-                        save_state(state)
-                        print("STATE UPDATED:", post_data["id"])
-                    else:
-                        print(
-                            "STATE NOT UPDATED:",
+
+                        state[channel] = (
                             post_data["id"]
                         )
 
-            except Exception as e:
-                print(f"[{channel}] ERROR:", str(e)[:500])
+                        save_state(
+                            state
+                        )
 
-        time.sleep(CHECK_INTERVAL)
+                        print(
+                            "STATE UPDATED:",
+                            post_data["id"]
+                        )
+
+    return
 
 
 if __name__ == "__main__":
+
     print("=" * 60)
-    print("FOOTBALL BARTAR AUTO MONITOR")
+
+    print(
+        "FOOTBALL BARTAR AUTO MONITOR"
+    )
+
     print("=" * 60)
-    print("Channels:", ", ".join(source_channels))
-    print("Target:", target_channel)
-    print("Check interval:", CHECK_INTERVAL, "seconds")
+
+    print(
+        "Channels:",
+        ", ".join(source_channels)
+    )
+
+    print(
+        "Target:",
+        target_channel
+    )
+
+    print(
+        "Check interval:",
+        CHECK_INTERVAL,
+        "seconds"
+    )
+
     print("=" * 60)
 
     monitor()
