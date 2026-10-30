@@ -750,7 +750,7 @@ def process_channel(channel, state):
                 str(e)[:500]
             )
 
-        if state_confirmed:
+                if state_confirmed:
 
             state[channel] = post_data["id"]
 
@@ -763,7 +763,7 @@ def process_channel(channel, state):
                 post_data["id"]
             )
 
-       else:
+        else:
 
             print(
                 "STATE NOT UPDATED:",
