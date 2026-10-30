@@ -763,19 +763,19 @@ def process_channel(channel, state):
                 post_data["id"]
             )
 
-        else:
+       else:
 
-        print(
-            "STATE NOT UPDATED:",
-            post_data["id"]
-        )
+            print(
+                "STATE NOT UPDATED:",
+                post_data["id"]
+            )
 
-        # Stop this channel here to preserve post order.
-        print(
-            f"[{channel}] STOPPING channel processing "
-            "to preserve order."
-        )
-        break
+            # Stop this channel here to preserve post order.
+            print(
+                f"[{channel}] STOPPING channel processing "
+                "to preserve order."
+            )
+            break
 
 def run_one_cycle(state):
     for channel in source_channels:
