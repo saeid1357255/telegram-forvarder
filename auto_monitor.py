@@ -38,6 +38,10 @@ class TelegramSendUncertain(Exception):
     pass
 
 
+class TelegramRejected(Exception):
+    pass
+
+
 class SourceUnavailable(Exception):
     pass
 
@@ -47,22 +51,28 @@ class SourceUnavailable(Exception):
 # =========================
 
 def load_state():
-
     if not os.path.exists(STATE_FILE):
-        return {}
+        return None
 
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             state = json.load(f)
-
-        if not isinstance(state, dict):
-            return {}
-
-        return state
-
     except Exception as e:
-        print("STATE LOAD ERROR:", str(e))
-        return {}
+        raise RuntimeError(
+            f"STATE FILE EXISTS BUT CANNOT BE READ: {e}"
+        ) from e
+
+    if not isinstance(state, dict) or not state:
+        raise RuntimeError(
+            "STATE FILE IS INVALID OR EMPTY. "
+            "AUTOMATIC INITIALIZATION BLOCKED."
+        )
+
+    pending = state.get("_pending", {})
+    if not isinstance(pending, dict):
+        raise RuntimeError("INVALID PENDING STATE")
+
+    return state
 
 
 def save_state(state):
@@ -346,26 +356,42 @@ def telegram_url(method):
 
 
 def check_telegram_response(response):
-
-    response.raise_for_status()
-
     try:
-
         data = response.json()
-
-    except ValueError as e:
-
+    except (ValueError, TypeError) as e:
         raise TelegramSendUncertain(
             "Telegram returned invalid JSON"
         ) from e
 
-    if not data.get("ok"):
-
-        raise RuntimeError(
-            f"Telegram API error: {data}"
+    if not isinstance(data, dict):
+        raise TelegramSendUncertain(
+            "Telegram returned an invalid response structure"
         )
 
+    if response.status_code >= 500:
+        raise TelegramSendUncertain(
+            f"Telegram server error HTTP {response.status_code}: {data}"
+        )
+
+    if data.get("ok") is False:
+        raise TelegramRejected(
+            f"Telegram explicitly rejected request: {data}"
+        )
+
+    if data.get("ok") is not True:
+        raise TelegramSendUncertain(
+            f"Telegram response has no confirmed success status: {data}"
+        )
+
+    try:
+        response.raise_for_status()
+    except requests.RequestException as e:
+        raise TelegramSendUncertain(
+            f"HTTP error despite success response: {e}"
+        ) from e
+
     return data
+
 
 
 def send_text(text):
@@ -492,106 +518,75 @@ def normalize_for_match(text):
 
 
 def destination_has_post(post):
-
     response = requests.get(
         f"https://t.me/s/{target_channel}",
         headers=HEADERS,
         timeout=30
     )
-
     response.raise_for_status()
 
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser"
-    )
+    soup = BeautifulSoup(response.text, "html.parser")
+    wanted_text = normalize_for_match(post.get("text", ""))
 
-    wanted_text = normalize_for_match(
-        post.get("text", "")
-    )
+    if not wanted_text:
+        return "UNKNOWN"
 
     wanted_type = post.get("type")
 
-    for item in soup.select(
-        ".tgme_widget_message"
-    ):
-
+    for item in soup.select(".tgme_widget_message"):
         if item.select_one("video"):
-
             item_type = "video"
-
-        elif item.select_one(
-            ".tgme_widget_message_photo_wrap"
-        ):
-
+        elif item.select_one(".tgme_widget_message_photo_wrap"):
             item_type = "photo"
-
         else:
-
             item_type = "text"
 
         if item_type != wanted_type:
             continue
 
-        node = item.select_one(
-            ".tgme_widget_message_text"
-        )
-
+        node = item.select_one(".tgme_widget_message_text")
         item_text = (
-            node.get_text("\n", strip=True)
-            if node
-            else ""
+            node.get_text("\\n", strip=True)
+            if node else ""
         )
 
-        if (
-            normalize_for_match(item_text)
-            == wanted_text
-        ):
-
+        if normalize_for_match(item_text) == wanted_text:
             print(
                 "CONFIRMED ON DESTINATION:",
                 item.get("data-post")
             )
+            return "FOUND"
 
-            return True
-
-    return False
+    return "NOT_FOUND"
 
 
-def confirm_destination(
-    post,
-    attempts=4,
-    delay=5
-):
+def confirm_destination(post, attempts=4, delay=5):
+    uncertain = False
 
     for attempt in range(1, attempts + 1):
-
-        print(
-            f"DESTINATION CHECK "
-            f"{attempt}/{attempts}"
-        )
+        print(f"DESTINATION CHECK {attempt}/{attempts}")
 
         try:
+            result = destination_has_post(post)
 
-            if destination_has_post(post):
-                return True
+            if result == "FOUND":
+                return "FOUND"
+
+            if result != "NOT_FOUND":
+                uncertain = True
 
         except requests.RequestException as e:
-
-            print(
-                "DESTINATION CHECK ERROR:",
-                str(e)[:300]
-            )
+            uncertain = True
+            print("DESTINATION CHECK ERROR:", str(e)[:300])
 
         if attempt < attempts:
             time.sleep(delay)
 
-    return False
+    if uncertain:
+        return "UNKNOWN"
 
+    return "NOT_FOUND"
 
-# =========================
-# PUBLISHING
-# =========================
 
 def publish_post(post):
 
@@ -633,10 +628,17 @@ def publish_post(post):
         {}
     )
 
-    print(
-        "PUBLISHED:",
-        message.get("message_id")
-    )
+    message_id = message.get("message_id")
+    if not message_id:
+        raise TelegramSendUncertain(
+            "Telegram response did not contain message_id"
+        )
+
+    print("PUBLISHED:", message_id)
+    return {
+        "message_id": message_id,
+        "chat": message.get("chat", {})
+    }
 
 
 # =========================
@@ -700,6 +702,42 @@ def initialize_state():
 # =========================
 
 def process_channel(channel, state):
+    pending_all = state.setdefault("_pending", {})
+
+    if not isinstance(pending_all, dict):
+        raise RuntimeError("INVALID PENDING STATE")
+
+    pending_record = pending_all.get(channel)
+
+    if pending_record is not None:
+        if (
+            not isinstance(pending_record, dict)
+            or not pending_record.get("id")
+            or not isinstance(pending_record.get("post"), dict)
+        ):
+            print(f"[{channel}] INVALID PENDING RECORD. STOPPING.")
+            return
+
+        pending_id = pending_record["id"]
+        print(f"[{channel}] RECONCILING PENDING POST:", pending_id)
+
+        try:
+            result = confirm_destination(pending_record["post"])
+        except Exception as e:
+            print("PENDING RECONCILIATION ERROR:", str(e)[:300])
+            print("PENDING PRESERVED. NO RESEND.")
+            return
+
+        if result != "FOUND":
+            print("PENDING RESULT:", result)
+            print("PENDING PRESERVED. AUTOMATIC RESEND BLOCKED.")
+            return
+
+        state[channel] = pending_id
+        pending_all.pop(channel)
+        save_state(state)
+
+        print("PENDING POST CONFIRMED AND STATE UPDATED:", pending_id)
 
     posts = get_posts(channel)
 
@@ -710,144 +748,132 @@ def process_channel(channel, state):
     known_id = state.get(channel)
 
     if known_id is None:
-
-        print(
-            f"[{channel}] State missing. "
-            "Skipping channel."
-        )
-
+        print(f"[{channel}] State missing. Skipping channel.")
         return
 
-    known_num = get_numeric_post_id(
-        known_id
-    )
+    known_num = get_numeric_post_id(known_id)
 
     if known_num is None:
-
-        print(
-            f"[{channel}] INVALID STATE:",
-            known_id
-        )
-
+        print(f"[{channel}] INVALID STATE:", known_id)
         return
 
     new_posts = []
 
     for post in posts:
-
         post_id = get_post_id(post)
 
         if not post_id:
             continue
 
-        post_num = get_numeric_post_id(
-            post_id
-        )
+        post_num = get_numeric_post_id(post_id)
 
-        if (
-            post_num is not None
-            and post_num > known_num
-        ):
-
-            new_posts.append(
-                (post_num, post)
-            )
+        if post_num is not None and post_num > known_num:
+            new_posts.append((post_num, post))
 
     if not new_posts:
-
-        print(
-            f"[{channel}] No new posts."
-        )
-
+        print(f"[{channel}] No new posts.")
         return
 
-    new_posts.sort(
-        key=lambda item: item[0]
-    )
+    new_posts.sort(key=lambda item: item[0])
 
-    print(
-        f"\n[{channel}] "
-        f"NEW POSTS: {len(new_posts)}"
-    )
+    print(f"\n[{channel}] NEW POSTS: {len(new_posts)}")
 
     for _, post in new_posts:
-
         post_data = detect_post(post)
+        post_id = post_data.get("id")
 
-        print(
-            "\nNEW POST:",
-            post_data["id"]
-        )
+        print("\nNEW POST:", post_id)
 
-        confirmed = False
+        if not post_id:
+            print("INVALID POST ID. STOPPING CHANNEL.")
+            break
+
+        pending_all[channel] = {
+            "id": post_id,
+            "post": post_data
+        }
 
         try:
-
-            publish_post(post_data)
-
-            confirmed = True
-
-        except TelegramSendUncertain as e:
-
-            print(
-                "UNCERTAIN SEND:",
-                str(e)[:300]
-            )
-
-            print(
-                "Checking destination before retry..."
-            )
-
-            if confirm_destination(post_data):
-
-                print(
-                    "POST ALREADY EXISTS ON DESTINATION."
-                )
-
-                confirmed = True
-
-            else:
-
-                print(
-                    "SEND RESULT STILL UNCERTAIN."
-                )
-
-                print(
-                    "NO AUTOMATIC RETRY "
-                    "TO AVOID DUPLICATE POSTS."
-                )
-
+            save_state(state)
         except Exception as e:
+            pending_all.pop(channel, None)
+            print("PENDING SAVE FAILED:", str(e)[:300])
+            print("SEND BLOCKED. NO MESSAGE WAS SENT.")
+            break
 
-            print(
-                f"[{channel}] PUBLISH ERROR:",
-                str(e)[:500]
-            )
+        print("PENDING SAVED BEFORE SEND:", post_id)
 
-        if confirmed:
+        try:
+            result = publish_post(post_data)
 
-            state[channel] = post_data["id"]
+            if not isinstance(result, dict) or not result.get("message_id"):
+                raise TelegramSendUncertain(
+                    "Publish result has no confirmed message_id"
+                )
 
+            state[channel] = post_id
+            pending_all.pop(channel, None)
             save_state(state)
 
-            print(
-                "STATE UPDATED:",
-                post_data["id"]
-            )
+            print("STATE UPDATED:", post_id)
+            print("TELEGRAM MESSAGE ID:", result["message_id"])
 
-        else:
+        except TelegramRejected as e:
+            print("TELEGRAM EXPLICITLY REJECTED POST:", str(e)[:500])
 
-            print(
-                "STATE NOT UPDATED:",
-                post_data["id"]
-            )
+            rejected_pending = pending_all.pop(channel, None)
 
-            print(
-                f"[{channel}] STOPPING "
-                "TO PRESERVE POST ORDER."
-            )
+            try:
+                save_state(state)
+            except Exception as save_error:
+                if rejected_pending is not None:
+                    pending_all[channel] = rejected_pending
+
+                print("PENDING CLEAR SAVE FAILED:", str(save_error)[:300])
+                print("PENDING RESTORED. CHANNEL STOPPED.")
+                break
+
+            print("REJECTED POST PENDING CLEARED.")
+            print("SOURCE STATE UNCHANGED. RETRY DEFERRED TO NEXT CYCLE.")
+            break
+
+        except TelegramSendUncertain as e:
+            print("UNCERTAIN SEND:", str(e)[:300])
+            print("Checking destination before resolving pending...")
+
+            try:
+                destination_result = confirm_destination(post_data)
+            except Exception as check_error:
+                destination_result = "UNKNOWN"
+                print("DESTINATION CHECK ERROR:", str(check_error)[:300])
+
+            if destination_result == "FOUND":
+                state[channel] = post_id
+                pending_all.pop(channel, None)
+                save_state(state)
+                print("POST CONFIRMED. STATE UPDATED:", post_id)
+            else:
+                print("DESTINATION RESULT:", destination_result)
+                print("PENDING PRESERVED. AUTOMATIC RESEND BLOCKED.")
+
+                try:
+                    save_state(state)
+                except Exception as save_error:
+                    print("WARNING: PENDING SAVE ERROR:", str(save_error)[:300])
+
+                break
+
+        except Exception as e:
+            print(f"[{channel}] PUBLISH ERROR:", str(e)[:500])
+            print("PENDING PRESERVED. AUTOMATIC RESEND BLOCKED.")
+
+            try:
+                save_state(state)
+            except Exception as save_error:
+                print("WARNING: PENDING SAVE ERROR:", str(save_error)[:300])
 
             break
+
 
 
 # =========================
@@ -888,43 +914,29 @@ def run_one_cycle(state):
 # =========================
 
 def monitor():
+    try:
+        state = load_state()
+    except Exception as e:
+        print("FATAL STATE ERROR:", str(e))
+        print("MONITOR STOPPED. STATE WAS NOT REINITIALIZED.")
+        return
 
-    state = load_state()
-
-    if not state:
-
+    if state is None:
         try:
-
             state = initialize_state()
-
         except Exception as e:
-
-            print(
-                "INITIALIZATION ERROR:",
-                str(e)
-            )
-
+            print("INITIALIZATION ERROR:", str(e))
             return
 
     run_one_cycle(state)
 
     if os.getenv("GITHUB_ACTIONS") == "true":
-
-        print(
-            "\nGITHUB ACTIONS: "
-            "ONE-CYCLE RUN COMPLETED."
-        )
-
+        print("\\nGITHUB ACTIONS: ONE-CYCLE RUN COMPLETED.")
         return
 
-    print(
-        "\nTERMUX CONTINUOUS MONITOR STARTED."
-    )
-
+    print("\\nTERMUX CONTINUOUS MONITOR STARTED.")
     while True:
-
         time.sleep(CHECK_INTERVAL)
-
         run_one_cycle(state)
 
 
